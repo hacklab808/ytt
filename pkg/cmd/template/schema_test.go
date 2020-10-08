@@ -9,7 +9,7 @@ import (
 	"github.com/k14s/ytt/pkg/files"
 )
 
-func TestDataValuesConformingToSchemaChecksOk(t *testing.T) {
+func TestMapOnlySchemaChecksOk(t *testing.T) {
 	schemaYAML := `#@schema/match data_values=True
 ---
 db_conn:
@@ -17,6 +17,8 @@ db_conn:
   port: 0
   username: ""
   password: ""
+  metadata:
+    run: jobName
 `
 	dataValuesYAML := `#@data/values
 ---
@@ -25,6 +27,8 @@ db_conn:
   port: 5432
   username: sa
   password: changeme
+  metadata:
+    run: ./build.sh
 `
 	templateYAML := `---
 rendered: true`
@@ -52,7 +56,7 @@ rendered: true`
 	}
 }
 
-func TestDataValuesNotConformingToSchemaFailsCheck(t *testing.T) {
+func TestDataValuesNotConformingToEmptySchemaFailsCheck(t *testing.T) {
 	schemaYAML := `#@schema/match data_values=True
 ---
 `
@@ -77,6 +81,73 @@ not_in_schema: "this should fail the type check!"
 	expectedErr := "Typechecking violations found: [Map item 'not_in_schema' at dataValues.yml:3 is not defined in schema]"
 	if !strings.Contains(out.Err.Error(), expectedErr) {
 		t.Fatalf("Expected an error about a schema check failure, but got: %s", out.Err.Error())
+	}
+
+}
+
+func TestMapOnlyDataValuesNotConformingToSchemaFailsCheck(t *testing.T) {
+	schemaYAML := `#@schema/match data_values=True
+---
+db_conn:
+  port: 0
+  username: 
+    main: ""
+`
+	dataValuesYAML := `#@data/values
+---
+db_conn:
+  port: localHost 
+  username:
+    main: 123
+  password: changeme
+`
+
+	filesToProcess := files.NewSortedFiles([]*files.File{
+		files.MustNewFileFromSource(files.NewBytesSource("schema.yml", []byte(schemaYAML))),
+		files.MustNewFileFromSource(files.NewBytesSource("dataValues.yml", []byte(dataValuesYAML))),
+	})
+
+	ui := cmdcore.NewPlainUI(false)
+	opts := cmdtpl.NewOptions()
+	opts.SchemaEnabled = true
+	out := opts.RunWithFiles(cmdtpl.TemplateInput{Files: filesToProcess}, ui)
+
+	if out.Err == nil {
+		t.Fatalf("Expected an error about the schema check failures, but succeeded.")
+	}
+	expectedErr := "[port: string type in dv but int in schema, username.main: int type in dv but string in schema, password: not found in schema]"
+	if !strings.Contains(out.Err.Error(), expectedErr) {
+		t.Fatalf("Expected an error about a schema check failure, but got: %s", out.Err.Error())
+	}
+
+}
+
+func TestDataValuesandSchemaContainsArrayFailsCheck(t *testing.T) {
+	schemaYAML := `#@schema/match data_values=True
+---
+- ""
+`
+	dataValuesYAML := `#@data/values
+---
+- test
+`
+
+	filesToProcess := files.NewSortedFiles([]*files.File{
+		files.MustNewFileFromSource(files.NewBytesSource("schema.yml", []byte(schemaYAML))),
+		files.MustNewFileFromSource(files.NewBytesSource("dataValues.yml", []byte(dataValuesYAML))),
+	})
+
+	ui := cmdcore.NewPlainUI(false)
+	opts := cmdtpl.NewOptions()
+	opts.SchemaEnabled = true
+	out := opts.RunWithFiles(cmdtpl.TemplateInput{Files: filesToProcess}, ui)
+
+	if out.Err == nil {
+		t.Fatalf("Expected an error about arrays not being supported in schemas, but succeeded.")
+	}
+	expectedErr := "Arrays are currently not supported in schema"
+	if !strings.Contains(out.Err.Error(), expectedErr) {
+		t.Fatalf("Expected an error about about arrays not being supported, but got: %s", out.Err.Error())
 	}
 
 }
