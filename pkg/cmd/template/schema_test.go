@@ -19,6 +19,7 @@ db_conn:
   password: ""
   metadata:
     run: jobName
+top_level: ""
 `
 	dataValuesYAML := `#@data/values
 ---
@@ -29,6 +30,7 @@ db_conn:
   password: changeme
   metadata:
     run: ./build.sh
+top_level: key
 `
 	templateYAML := `---
 rendered: true`
@@ -90,13 +92,13 @@ func TestMapOnlyDataValuesNotConformingToSchemaFailsCheck(t *testing.T) {
 ---
 db_conn:
   port: 0
-  username: 
-    main: ""
+  username:
+    main: "0"
 `
 	dataValuesYAML := `#@data/values
 ---
 db_conn:
-  port: localHost 
+  port: localHost
   username:
     main: 123
   password: changeme
@@ -115,7 +117,7 @@ db_conn:
 	if out.Err == nil {
 		t.Fatalf("Expected an error about the schema check failures, but succeeded.")
 	}
-	expectedErr := "[port: string type in dv but int in schema, username.main: int type in dv but string in schema, password: not found in schema]"
+	expectedErr := "Typechecking violations found: [Map item 'port' at dataValues.yml:4 was type string when int was expected. Map item 'main' at dataValues.yml:6 was type int when string was expected. Map item 'password' at dataValues.yml:7 is not defined in schema]"
 	if !strings.Contains(out.Err.Error(), expectedErr) {
 		t.Fatalf("Expected an error about a schema check failure, but got: %s", out.Err.Error())
 	}
@@ -204,26 +206,12 @@ rendered: true`
 func TestSchemaFileButNoSchemaFlagExpectsWarning(t *testing.T) {
 	schemaYAML := `#@schema/match data_values=True
 ---
-db_conn:
-  hostname: ""
-  port: 0
-  username: ""
-  password: ""
-`
-	dataValuesYAML := `#@data/values
----
-db_conn:
-  hostname: server.example.com
-  port: 5432
-  username: sa
-  password: changeme
 `
 	templateYAML := `---
 rendered: true`
 
 	filesToProcess := files.NewSortedFiles([]*files.File{
 		files.MustNewFileFromSource(files.NewBytesSource("schema.yml", []byte(schemaYAML))),
-		files.MustNewFileFromSource(files.NewBytesSource("dataValues.yml", []byte(dataValuesYAML))),
 		files.MustNewFileFromSource(files.NewBytesSource("template.yml", []byte(templateYAML))),
 	})
 

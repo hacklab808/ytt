@@ -78,11 +78,11 @@ func NewMapItemSchema(item *MapItem) (*MapItem, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &MapItem{Key: item.Key, Value: newMap, Type: MapType{}}, nil
+		return &MapItem{Key: item.Key, Value: newMap}, nil
 	case string:
-		return &MapItem{Key: item.Key, Value: item.Value, Type: "string"}, nil
+		return &MapItem{Key: item.Key, Value: item.Value}, nil
 	case int:
-		return &MapItem{Key: item.Key, Value: item.Value, Type: "scalar"}, nil
+		return &MapItem{Key: item.Key, Value: item.Value}, nil
 	case *Array:
 		return nil, NewArraySchema()
 	}
@@ -92,14 +92,6 @@ func NewMapItemSchema(item *MapItem) (*MapItem, error) {
 func NewArraySchema() error {
 	return fmt.Errorf("Arrays are currently not supported in schema")
 }
-
-//func NewStringSchema(str string) {
-//
-//}
-//
-//func NewScalarSchema(num float64) {
-//
-//}
 
 func (mt *MapType) AllowsKey(key interface{}) bool {
 	for _, item := range mt.Items {
@@ -149,12 +141,26 @@ func (m *Map) Check() TypeCheck {
 
 func (mapItem *MapItem) Check() TypeCheck {
 	typeCheck := TypeCheck{}
+	violationErrorMessage := "Map item '%s' at %s was type %T when %T was expected."
 
-	//mapItem.Type.CheckAllows()
+	switch typedValue := mapItem.Value.(type) {
+	case *Map:
+		check := typedValue.Check()
+		typeCheck.Violations = append(typeCheck.Violations, check.Violations...)
+	case int:
+		if _, ok := mapItem.Type.(int); !ok {
+			violation := fmt.Sprintf(violationErrorMessage, mapItem.Key, mapItem.Position.AsCompactString(), typedValue, mapItem.Type)
+			typeCheck.Violations = append(typeCheck.Violations, violation)
+		}
+		return typeCheck
+	case string:
+		if _, ok := mapItem.Type.(string); !ok {
+			violation := fmt.Sprintf(violationErrorMessage, mapItem.Key, mapItem.Position.AsCompactString(), typedValue, mapItem.Type)
+			typeCheck.Violations = append(typeCheck.Violations, violation)
+		}
+		return typeCheck
+	}
 
-	//switch t := mapItem.Value.(type) {
-	//case :
-	//}
 	return typeCheck
 }
 
@@ -162,61 +168,37 @@ func (d *DocumentSet) Check() TypeCheck { return TypeCheck{} }
 func (d *Array) Check() TypeCheck       { return TypeCheck{} }
 func (d *ArrayItem) Check() TypeCheck   { return TypeCheck{} }
 
-func (as AnySchema) AssignType(_ *Node) {
-	//(*node). = DocumentType{}
-}
+func (as AnySchema) AssignType(_ *Node) {}
 
 func (s DocumentSchema) AssignType(node *Node) {
-	vals := (*node).GetValues()
-	for _, val := range vals {
+	for _, val := range (*node).GetValues() {
 		switch typedNode := val.(type) {
 		case *Map:
-			mapType, ok := s.Allowed.Value.(*MapType)
+			schemaMapType, ok := s.Allowed.Value.(*MapType)
 			if !ok {
 				typedNode.Type = &MapType{}
 				// during typing we dont report error
 				break
 			}
-			typedNode.Type = mapType
+			typedNode.Type = schemaMapType
 
-			for _, item := range typedNode.Items {
-				for _, mapTypeItem := range mapType.Items {
-					if item.Key == mapTypeItem.Key {
-						item.Type = mapTypeItem.Type
+			for _, mapItem := range typedNode.Items {
+				for _, schemaItem := range schemaMapType.Items {
+					if mapItem.Key == schemaItem.Key {
+						// Found the matching schema section
+						mapItem.Type = schemaItem.Value
 
-						_, ok := s.Allowed.Value.(*MapType)
-						if ok {
-							oldAllowed := s.Allowed
-							s.Allowed = &DocumentType{&Document{Value: mapTypeItem.Value}}
-							s.AssignType(item.Value.(*Node))
-							s.Allowed = oldAllowed
-						}
-
-					}
-				}
-			}
-		case *MapItem:
-			mapType, ok := s.Allowed.Value.(*MapType)
-			if !ok {
-				typedNode.Type = &MapType{}
-				// during typing we dont report error
-				break
-			}
-			typedNode.Type = mapType
-
-			for _, mapTypeItem := range mapType.Items {
-				if typedNode.Key == mapTypeItem.Key {
-					typedNode.Type = mapTypeItem.Type
-
-					_, ok := s.Allowed.Value.(*MapType)
-					if ok {
+						// Check the children by calling AssignType recursively
+						mapItemAsNode := Node(mapItem)
 						oldAllowed := s.Allowed
-						s.Allowed = &DocumentType{&Document{Value: mapTypeItem.Value}}
-						s.AssignType(typedNode.Value.(*Node))
+						s.Allowed = &DocumentType{&Document{Value: schemaItem.Value}}
+						s.AssignType(&mapItemAsNode)
 						s.Allowed = oldAllowed
-					}
 
+						break
+					}
 				}
+
 			}
 		}
 	}

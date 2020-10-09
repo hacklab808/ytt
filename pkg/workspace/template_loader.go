@@ -189,8 +189,9 @@ func (l *TemplateLoader) EvalYAML(libraryCtx LibraryExecutionContext, file *file
 	if _, ok := l.schema.(yamlmeta.AnySchema); !ok {
 		var outerTypeCheck yamlmeta.TypeCheck
 		for _, doc := range resultVal.(*yamlmeta.DocumentSet).Items {
-			l.schema.AssignType(doc)
-			typeCheck := doc.Check()
+			docAsNode := yamlmeta.Node(doc)
+			l.schema.AssignType(&docAsNode)
+			typeCheck := docAsNode.Check()
 			outerTypeCheck.Violations = append(outerTypeCheck.Violations, typeCheck.Violations...)
 		}
 		if len(outerTypeCheck.Violations) > 0 {
