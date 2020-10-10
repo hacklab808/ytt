@@ -8,15 +8,41 @@ import (
 )
 
 type Schema interface {
-	AssignType(node *Node)
+	AssignType(node Node)
 }
 
 type AnySchema struct {
 }
 
+var _ Schema = &AnySchema{}
+
 type DocumentSchema struct {
 	Allowed *DocumentType
 }
+
+var _ Schema = &DocumentSchema{}
+
+type MapSchema struct {
+	Allowed *MapType
+}
+
+var _ Schema = &MapSchema{}
+
+type MapItemSchema struct {
+	Allowed interface{}
+}
+
+var _ Schema = &MapItemSchema{}
+
+type ValueSchema struct {
+	Allowed ValueType
+}
+
+func (v ValueSchema) AssignType(node Node) {
+	panic("implement me")
+}
+
+var _ Schema = &ValueSchema{}
 
 type TypeCheck struct {
 	Violations []string
@@ -27,15 +53,20 @@ func (tc *TypeCheck) HasViolations() bool {
 }
 
 type DocumentType struct {
-	*Document
+	Schema interface{}
+}
+
+type ValueType struct {
+	DefaultValue interface{}
 }
 
 type MapType struct {
-	Map
+	Items    []*MapItemType
 }
 
 type MapItemType struct {
-	MapItem
+	Key          interface{}
+	Schema       Schema
 }
 
 type ArrayType struct {
@@ -47,11 +78,11 @@ func NewDocumentSchema(doc *Document) (*DocumentSchema, error) {
 
 	switch typedContent := doc.Value.(type) {
 	case *Map:
-		mapType, err := NewMapSchema(typedContent)
+		mapSchema, err := NewMapSchema(typedContent)
 		if err != nil {
 			return nil, err
 		}
-		schemaDoc.Allowed = &DocumentType{&Document{Value: mapType}}
+		schemaDoc.Allowed.Schema = mapSchema
 	case *Array:
 		return nil, NewArraySchema()
 	}
@@ -59,30 +90,31 @@ func NewDocumentSchema(doc *Document) (*DocumentSchema, error) {
 	return schemaDoc, nil
 }
 
-func NewMapSchema(m *Map) (*MapType, error) {
+func NewMapSchema(m *Map) (*MapSchema, error) {
 	mapType := &MapType{}
+
 	for _, mapItem := range m.Items {
-		newMapItem, err := NewMapItemSchema(mapItem)
+		newMapItemSchema, err := NewMapItemType(mapItem)
 		if err != nil {
 			return nil, err
 		}
-		mapType.Items = append(mapType.Items, newMapItem)
+		mapType.Items = append(mapType.Items, newMapItemSchema)
 	}
-	return mapType, nil
+	return &MapSchema{Allowed: mapType}, nil
 }
 
-func NewMapItemSchema(item *MapItem) (*MapItem, error) {
-	switch typedContent := item.Value.(type) {
+func NewMapItemType(schemaItem *MapItem) (*MapItemType, error) {
+	switch typedContent := schemaItem.Value.(type) {
 	case *Map:
-		newMap, err := NewMapSchema(typedContent)
+		newMapSchema, err := NewMapSchema(typedContent)
 		if err != nil {
 			return nil, err
 		}
-		return &MapItem{Key: item.Key, Value: newMap}, nil
+		return &MapItemType{Key: schemaItem.Key, Schema: newMapSchema}, nil
 	case string:
-		return &MapItem{Key: item.Key, Value: item.Value}, nil
+		return &MapItemType{Key: schemaItem.Key, Schema: ValueSchema{Allowed: ValueType{DefaultValue: schemaItem.Value}}}, nil
 	case int:
-		return &MapItem{Key: item.Key, Value: item.Value}, nil
+		return &MapItemType{Key: schemaItem.Key, Schema: ValueSchema{Allowed: ValueType{DefaultValue: schemaItem.Value}}}, nil
 	case *Array:
 		return nil, NewArraySchema()
 	}
@@ -168,38 +200,72 @@ func (d *DocumentSet) Check() TypeCheck { return TypeCheck{} }
 func (d *Array) Check() TypeCheck       { return TypeCheck{} }
 func (d *ArrayItem) Check() TypeCheck   { return TypeCheck{} }
 
-func (as AnySchema) AssignType(_ *Node) {}
+func (as AnySchema) AssignType(_ Node) {}
 
-func (s DocumentSchema) AssignType(node *Node) {
-	for _, val := range (*node).GetValues() {
+func (s DocumentSchema) AssignType(node Node) {
+	document, ok := node.(*Document)
+	if !ok {
+		panic("document schema assigntype called with non-document type")
+	}
+	document.Type = s.Allowed.Schema
+	
+	for _, val := range node.GetValues() {
 		switch typedNode := val.(type) {
 		case *Map:
-			schemaMapType, ok := s.Allowed.Value.(*MapType)
+			thisMapType, ok := s.Allowed.Schema.(*MapType)
 			if !ok {
 				typedNode.Type = &MapType{}
 				// during typing we dont report error
 				break
 			}
-			typedNode.Type = schemaMapType
 
-			for _, mapItem := range typedNode.Items {
-				for _, schemaItem := range schemaMapType.Items {
-					if mapItem.Key == schemaItem.Key {
-						// Found the matching schema section
-						mapItem.Type = schemaItem.Value
+			typedNode.Type = thisMapType
 
-						// Check the children by calling AssignType recursively
-						mapItemAsNode := Node(mapItem)
-						oldAllowed := s.Allowed
-						s.Allowed = &DocumentType{&Document{Value: schemaItem.Value}}
-						s.AssignType(&mapItemAsNode)
-						s.Allowed = oldAllowed
-
-						break
-					}
-				}
-
-			}
+			AssignType(typedNode.Items)
+			//schemaMapType.Schema.AssignType(typedNode)
 		}
 	}
+}
+
+func (m MapSchema) AssignType(node Node) {
+	typedNode, ok := node.(*Map)
+	if !ok {
+		panic("map schema assigntype called with non-map type")
+	}
+	for _, mapItem := range typedNode.Items {
+		for _, schemaItem := range m.Allowed.Items {
+			if mapItem.Key == schemaItem.Key {
+				// Found the matching schema section
+				mapItem.Type = schemaItem.DefaultValue
+
+				//desired call
+				nodeValue, ok := mapItem.Value.(Node)
+				if ok {
+					schemaItem.Schema.AssignType(nodeValue)
+				}
+
+
+				// Check the children by calling AssignType recursively
+				//mapItemAsNode := Node(mapItem)
+				//oldAllowed := s.Allowed
+				//s.Allowed = &DocumentType{&Document{Value: schemaItem.Value}}
+				//s.AssignType(&mapItemAsNode)
+				//s.Allowed = oldAllowed
+
+				break
+			}
+		}
+
+	}
+}
+
+func (m MapItemSchema) AssignType(node Node) {
+	typedNode, ok := node.(*MapItem)
+	if !ok {
+		panic("mapItem schema assigntype called with non-mapItem type")
+	}
+
+	typedNode.Type = m.Allowed
+
+	//Need to call AssignType on the children if its a map/array
 }

@@ -33,7 +33,7 @@ not_in_schema: "this must fail validation."
 	}
 	dataValueDoc := dataValuesDocSet.GetValues()[1].(*yamlmeta.Document)
 	dataValueNode := yamlmeta.Node(dataValueDoc)
-	schema.AssignType(&dataValueNode)
+	schema.AssignType(dataValueNode)
 	typeCheck := dataValueNode.Check()
 
 	const expectedErrorMessage = "{[Map item 'not_in_schema' at dataValues.yml:5 is not defined in schema]}"

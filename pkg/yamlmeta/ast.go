@@ -58,6 +58,7 @@ type Map struct {
 	Items    []*MapItem
 	Position *filepos.Position
 	Type     *MapType
+	Schema   MapSchema
 
 	annotations interface{}
 }
@@ -68,6 +69,7 @@ type MapItem struct {
 	Value    interface{}
 	Position *filepos.Position
 	Type     interface{}
+	Schema   Schema
 
 	annotations interface{}
 }
