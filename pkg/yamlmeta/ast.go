@@ -47,7 +47,7 @@ type Document struct {
 	Metas    []*Meta
 	Value    interface{}
 	Position *filepos.Position
-	Type     interface{}
+	Type     *DocumentType
 
 	annotations interface{}
 	injected    bool // indicates that Document was not present in the parsed content
@@ -68,7 +68,7 @@ type MapItem struct {
 	Key      interface{}
 	Value    interface{}
 	Position *filepos.Position
-	Type     interface{}
+	Type     *MapItemType
 	Schema   Schema
 
 	annotations interface{}

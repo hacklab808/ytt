@@ -7,8 +7,13 @@ import (
 	"fmt"
 )
 
+type NodeType interface {
+	Name() string
+}
+
 type Schema interface {
 	AssignType(node Node)
+	//AllowedTypes() []*NodeType
 }
 
 type AnySchema struct {
@@ -17,6 +22,8 @@ type AnySchema struct {
 var _ Schema = &AnySchema{}
 
 type DocumentSchema struct {
+	Name    string
+	Source  *Document
 	Allowed *DocumentType
 }
 
@@ -29,7 +36,7 @@ type MapSchema struct {
 var _ Schema = &MapSchema{}
 
 type MapItemSchema struct {
-	Allowed interface{}
+	Allowed *MapItemType
 }
 
 var _ Schema = &MapItemSchema{}
@@ -53,7 +60,8 @@ func (tc *TypeCheck) HasViolations() bool {
 }
 
 type DocumentType struct {
-	Schema interface{}
+	Source *Document
+	ValueSchema Schema // MapSchema, ArraySchema, ... ScalarSchema
 }
 
 type ValueType struct {
@@ -61,12 +69,12 @@ type ValueType struct {
 }
 
 type MapType struct {
-	Items    []*MapItemType
+	Items []*MapItemType
 }
 
 type MapItemType struct {
-	Key          interface{}
-	Schema       Schema
+	Key         interface{}
+	ValueSchema Schema
 }
 
 type ArrayType struct {
@@ -179,15 +187,10 @@ func (mapItem *MapItem) Check() TypeCheck {
 	case *Map:
 		check := typedValue.Check()
 		typeCheck.Violations = append(typeCheck.Violations, check.Violations...)
-	case int:
-		if _, ok := mapItem.Type.(int); !ok {
-			violation := fmt.Sprintf(violationErrorMessage, mapItem.Key, mapItem.Position.AsCompactString(), typedValue, mapItem.Type)
-			typeCheck.Violations = append(typeCheck.Violations, violation)
-		}
-		return typeCheck
-	case string:
-		if _, ok := mapItem.Type.(string); !ok {
-			violation := fmt.Sprintf(violationErrorMessage, mapItem.Key, mapItem.Position.AsCompactString(), typedValue, mapItem.Type)
+	default:
+		if ok := mapItem.Type.(typedValue); !ok {
+		//if _, ok := mapItem.Type.(int); !ok {
+			violation := fmt.Sprintf(violationErrorMessage, mapItem.Key, mapItem.Position.AsCompactString(), typedValue, mapItem.Schema.AllowedTypes())
 			typeCheck.Violations = append(typeCheck.Violations, violation)
 		}
 		return typeCheck
@@ -207,51 +210,31 @@ func (s DocumentSchema) AssignType(node Node) {
 	if !ok {
 		panic("document schema assigntype called with non-document type")
 	}
-	document.Type = s.Allowed.Schema
-	
+	document.Type = s.Allowed
+
 	for _, val := range node.GetValues() {
-		switch typedNode := val.(type) {
-		case *Map:
-			thisMapType, ok := s.Allowed.Schema.(*MapType)
-			if !ok {
-				typedNode.Type = &MapType{}
-				// during typing we dont report error
-				break
-			}
-
-			typedNode.Type = thisMapType
-
-			AssignType(typedNode.Items)
-			//schemaMapType.Schema.AssignType(typedNode)
+		switch docVal := val.(type) {
+		case Node:
+			s.Allowed.ValueSchema.AssignType(docVal)
+		default:
+			//if !s.Allowed.ValueSchema.IsAssignable(val) {}
+			return
 		}
 	}
 }
 
 func (m MapSchema) AssignType(node Node) {
-	typedNode, ok := node.(*Map)
+	mapNode, ok := node.(*Map)
 	if !ok {
 		panic("map schema assigntype called with non-map type")
 	}
-	for _, mapItem := range typedNode.Items {
-		for _, schemaItem := range m.Allowed.Items {
-			if mapItem.Key == schemaItem.Key {
+	mapNode.Type = m.Allowed
+
+	for _, mapItem := range mapNode.Items {
+		for _, itemType := range mapNode.Type.Items {
+			if mapItem.Key == itemType.Key {
 				// Found the matching schema section
-				mapItem.Type = schemaItem.DefaultValue
-
-				//desired call
-				nodeValue, ok := mapItem.Value.(Node)
-				if ok {
-					schemaItem.Schema.AssignType(nodeValue)
-				}
-
-
-				// Check the children by calling AssignType recursively
-				//mapItemAsNode := Node(mapItem)
-				//oldAllowed := s.Allowed
-				//s.Allowed = &DocumentType{&Document{Value: schemaItem.Value}}
-				//s.AssignType(&mapItemAsNode)
-				//s.Allowed = oldAllowed
-
+				itemType.ValueSchema.AssignType(mapItem)
 				break
 			}
 		}
@@ -260,12 +243,17 @@ func (m MapSchema) AssignType(node Node) {
 }
 
 func (m MapItemSchema) AssignType(node Node) {
-	typedNode, ok := node.(*MapItem)
+	mapItemNode, ok := node.(*MapItem)
 	if !ok {
 		panic("mapItem schema assigntype called with non-mapItem type")
 	}
 
-	typedNode.Type = m.Allowed
+	mapItemNode.Type = m.Allowed
 
-	//Need to call AssignType on the children if its a map/array
+	switch mapItemVal := mapItemNode.Value.(type) {
+	case Node:
+		mapItemNode.Type.ValueSchema.AssignType(mapItemVal)
+	default:
+		return
+	}
 }
