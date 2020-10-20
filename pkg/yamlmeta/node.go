@@ -173,6 +173,64 @@ func (n *MapItem) SetAnnotations(anns interface{})     { n.annotations = anns }
 func (n *Array) SetAnnotations(anns interface{})       { n.annotations = anns }
 func (n *ArrayItem) SetAnnotations(anns interface{})   { n.annotations = anns }
 
+
+type TypeCheck struct {
+	Violations []string
+}
+func (tc *TypeCheck) HasViolations() bool {
+	return len(tc.Violations) > 0
+}
+
+func (n *Document) Check() TypeCheck {
+	var typeCheck TypeCheck
+
+	switch typedContents := n.Value.(type) {
+	case Node:
+		typeCheck = typedContents.Check()
+	}
+
+	return typeCheck
+}
+func (n *Map) Check() TypeCheck {
+	typeCheck := TypeCheck{}
+
+	for _, item := range n.Items {
+		check := n.Type.CheckAllows(item)
+		if check.HasViolations() {
+			typeCheck.Violations = append(typeCheck.Violations, check.Violations...)
+			continue
+		}
+		check = item.Check()
+		if check.HasViolations() {
+			typeCheck.Violations = append(typeCheck.Violations, check.Violations...)
+		}
+	}
+	return typeCheck
+}
+func (n *MapItem) Check() TypeCheck {
+	typeCheck := TypeCheck{}
+	violationErrorMessage := "Map item '%s' at %s was type %T when %T was expected."
+
+	switch typedValue := n.Value.(type) {
+	case *Map:
+		check := typedValue.Check()
+		typeCheck.Violations = append(typeCheck.Violations, check.Violations...)
+	default:
+		if ok := n.Type.(typedValue); !ok {
+			//if _, ok := n.Type.(int); !ok {
+			violation := fmt.Sprintf(violationErrorMessage, n.Key, n.Position.AsCompactString(), typedValue, n.Schema.AllowedTypes())
+			typeCheck.Violations = append(typeCheck.Violations, violation)
+		}
+		return typeCheck
+	}
+
+	return typeCheck
+}
+func (n *DocumentSet) Check() TypeCheck { return TypeCheck{} }
+func (n *Array) Check() TypeCheck     { return TypeCheck{} }
+func (n *ArrayItem) Check() TypeCheck { return TypeCheck{} }
+
+
 // Below methods disallow marshaling of nodes directly
 var _ []yaml.Marshaler = []yaml.Marshaler{&DocumentSet{}, &Document{}, &Map{}, &MapItem{}, &Array{}, &ArrayItem{}}
 

@@ -32,9 +32,8 @@ not_in_schema: "this must fail validation."
 		t.Fatalf("Unable to parse data values file: %s", err)
 	}
 	dataValueDoc := dataValuesDocSet.GetValues()[1].(*yamlmeta.Document)
-	dataValueNode := yamlmeta.Node(dataValueDoc)
-	schema.AssignType(dataValueNode)
-	typeCheck := dataValueNode.Check()
+	schema.AssignType(dataValueDoc)
+	typeCheck := dataValueDoc.Check()
 
 	const expectedErrorMessage = "{[Map item 'not_in_schema' at dataValues.yml:5 is not defined in schema]}"
 	if !typeCheck.HasViolations() {
