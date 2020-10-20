@@ -7,10 +7,6 @@ import (
 	"fmt"
 )
 
-type NodeType interface {
-	Name() string
-}
-
 type Schema interface {
 	AssignType(node Node)
 	//AllowedTypes() []*NodeType
@@ -59,13 +55,16 @@ func (tc *TypeCheck) HasViolations() bool {
 	return len(tc.Violations) > 0
 }
 
-type DocumentType struct {
-	Source *Document
-	ValueSchema Schema // MapSchema, ArraySchema, ... ScalarSchema
+type Type interface {
 }
 
-type ValueType struct {
-	DefaultValue interface{}
+type ScalarType struct {
+	Name string
+}
+
+type DocumentType struct {
+	Source    *Document
+	ValueType Type //One of MapType, ArrayType, ScalarType
 }
 
 type MapType struct {
@@ -73,32 +72,27 @@ type MapType struct {
 }
 
 type MapItemType struct {
-	Key         interface{}
-	ValueSchema Schema
-}
-
-type ArrayType struct {
-	Array
+	Key       interface{} // usually a string
+	ValueType Type
 }
 
 func NewDocumentSchema(doc *Document) (*DocumentSchema, error) {
-	schemaDoc := &DocumentSchema{Allowed: &DocumentType{&Document{Value: nil}}}
+	docType := &DocumentType{Source: doc}
 
-	switch typedContent := doc.Value.(type) {
+	switch typedDocumentValue := doc.Value.(type) {
 	case *Map:
-		mapSchema, err := NewMapSchema(typedContent)
-		if err != nil {
-			return nil, err
-		}
-		schemaDoc.Allowed.Schema = mapSchema
-	case *Array:
-		return nil, NewArraySchema()
-	}
+		valueType, _ := NewMapType(typedDocumentValue)
 
-	return schemaDoc, nil
+		docType.ValueType = valueType
+	}
+	return &DocumentSchema{
+		Name:    "dataValues",
+		Source:  doc,
+		Allowed: docType,
+	}, nil
 }
 
-func NewMapSchema(m *Map) (*MapSchema, error) {
+func NewMapType(m *Map) (*MapType, error) {
 	mapType := &MapType{}
 
 	for _, mapItem := range m.Items {
@@ -108,21 +102,21 @@ func NewMapSchema(m *Map) (*MapSchema, error) {
 		}
 		mapType.Items = append(mapType.Items, newMapItemSchema)
 	}
-	return &MapSchema{Allowed: mapType}, nil
+	return mapType, nil
 }
 
 func NewMapItemType(schemaItem *MapItem) (*MapItemType, error) {
 	switch typedContent := schemaItem.Value.(type) {
 	case *Map:
-		newMapSchema, err := NewMapSchema(typedContent)
+		newMapSchema, err := NewMapType(typedContent)
 		if err != nil {
 			return nil, err
 		}
-		return &MapItemType{Key: schemaItem.Key, Schema: newMapSchema}, nil
+		return &MapItemType{Key: schemaItem.Key, ValueType: newMapSchema}, nil
 	case string:
-		return &MapItemType{Key: schemaItem.Key, Schema: ValueSchema{Allowed: ValueType{DefaultValue: schemaItem.Value}}}, nil
+		return &MapItemType{Key: schemaItem.Key, ValueType: ScalarType{Name: "string"}}, nil
 	case int:
-		return &MapItemType{Key: schemaItem.Key, Schema: ValueSchema{Allowed: ValueType{DefaultValue: schemaItem.Value}}}, nil
+		return &MapItemType{Key: schemaItem.Key, ValueType: ScalarType{Name: "int"}}, nil
 	case *Array:
 		return nil, NewArraySchema()
 	}
@@ -189,7 +183,7 @@ func (mapItem *MapItem) Check() TypeCheck {
 		typeCheck.Violations = append(typeCheck.Violations, check.Violations...)
 	default:
 		if ok := mapItem.Type.(typedValue); !ok {
-		//if _, ok := mapItem.Type.(int); !ok {
+			//if _, ok := mapItem.Type.(int); !ok {
 			violation := fmt.Sprintf(violationErrorMessage, mapItem.Key, mapItem.Position.AsCompactString(), typedValue, mapItem.Schema.AllowedTypes())
 			typeCheck.Violations = append(typeCheck.Violations, violation)
 		}
@@ -205,20 +199,50 @@ func (d *ArrayItem) Check() TypeCheck   { return TypeCheck{} }
 
 func (as AnySchema) AssignType(_ Node) {}
 
-func (s DocumentSchema) AssignType(node Node) {
-	document, ok := node.(*Document)
-	if !ok {
-		panic("document schema assigntype called with non-document type")
-	}
-	document.Type = s.Allowed
+func (s DocumentSchema) AssignType(doc *Document) {
+	s.assignType(doc, s.Allowed.ValueType)
+}
 
-	for _, val := range node.GetValues() {
-		switch docVal := val.(type) {
-		case Node:
-			s.Allowed.ValueSchema.AssignType(docVal)
-		default:
-			//if !s.Allowed.ValueSchema.IsAssignable(val) {}
+func (s DocumentSchema) assignType(node Node, nodeType Type) {
+	switch theNode := node.(type) {
+	case *Document:
+		docType, ok := nodeType.(*DocumentType)
+		if !ok {
 			return
+		}
+		theNode.Type = docType
+
+		for _, val := range theNode.GetValues() {
+			switch docVal := val.(type) {
+			case Node:
+				s.assignType(docVal, docType.ValueType)
+
+
+			default:
+				//scalar
+				return
+			}
+		}
+	case *Map:
+		mapType, ok := nodeType.(*MapType)
+		if !ok {
+			return
+		}
+		theNode.Type = mapType
+
+		for _, mapItem := range theNode.Items {
+			for _, mapTypeItem := range mapType.Items {
+				if mapItem.Key == mapTypeItem.Key {
+					mapItem.Type = mapTypeItem
+
+					if node, ok := mapItem.Value.(Node); ok {
+						s.assignType(node, mapTypeItem.ValueType)
+					}
+
+					break
+				}
+			}
+
 		}
 	}
 }
