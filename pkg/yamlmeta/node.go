@@ -215,10 +215,26 @@ func (n *MapItem) Check() TypeCheck {
 	case *Map:
 		check := typedValue.Check()
 		typeCheck.Violations = append(typeCheck.Violations, check.Violations...)
-	default:
-		if ok := n.Type.(typedValue); !ok {
-			//if _, ok := n.Type.(int); !ok {
-			violation := fmt.Sprintf(violationErrorMessage, n.Key, n.Position.AsCompactString(), typedValue, n.Schema.AllowedTypes())
+	case string:
+		scalarType, ok := n.Type.(*ScalarType)
+		if !ok {
+			violation := fmt.Sprintf(violationErrorMessage, n.Key, n.Position.AsCompactString(), typedValue, n.Type)
+			typeCheck.Violations = append(typeCheck.Violations, violation)
+			return typeCheck
+		}
+		if scalarType.Name != "string" {
+			violation := fmt.Sprintf(violationErrorMessage, n.Key, n.Position.AsCompactString(), typedValue, n.Type)
+			typeCheck.Violations = append(typeCheck.Violations, violation)
+		}
+	case int:
+		scalarType, ok := n.Type.(*ScalarType)
+		if !ok {
+			violation := fmt.Sprintf(violationErrorMessage, n.Key, n.Position.AsCompactString(), typedValue, n.Type)
+			typeCheck.Violations = append(typeCheck.Violations, violation)
+			return typeCheck
+		}
+		if scalarType.Name != "int" {
+			violation := fmt.Sprintf(violationErrorMessage, n.Key, n.Position.AsCompactString(), typedValue, n.Type)
 			typeCheck.Violations = append(typeCheck.Violations, violation)
 		}
 		return typeCheck

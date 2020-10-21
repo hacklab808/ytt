@@ -23,10 +23,6 @@ type DocumentSchema struct {
 	Allowed *DocumentType
 }
 
-type ScalarType struct {
-	Name string
-}
-
 func NewDocumentSchema(doc *Document) (*DocumentSchema, error) {
 	docType := &DocumentType{Source: doc}
 
@@ -65,9 +61,9 @@ func NewMapItemType(item *MapItem) (*MapItemType, error) {
 		}
 		return &MapItemType{Key: item.Key, ValueType: mapType}, nil
 	case string:
-		return &MapItemType{Key: item.Key, ValueType: ScalarType{Name: "string"}}, nil
+		return &MapItemType{Key: item.Key, ValueType: &ScalarType{Name: "string"}}, nil
 	case int:
-		return &MapItemType{Key: item.Key, ValueType: ScalarType{Name: "int"}}, nil
+		return &MapItemType{Key: item.Key, ValueType: &ScalarType{Name: "int"}}, nil
 	case *Array:
 		return nil, NewArraySchema()
 	}
@@ -78,8 +74,8 @@ func NewArraySchema() error {
 	return fmt.Errorf("Arrays are currently not supported in schema")
 }
 
-func (as *AnySchema) AssignType(_ Node) {}
+func (as *AnySchema) AssignType(typeable Typeable) {}
 
-func (s *DocumentSchema) AssignType(doc *Document) TypeCheck {
-	return s.Allowed.ValueType.AssignTypeTo(doc)
+func (s *DocumentSchema) AssignType(typeable Typeable) {
+	s.Allowed.ValueType.AssignTypeTo(typeable)
 }

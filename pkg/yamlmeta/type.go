@@ -41,11 +41,19 @@ type MapItemType struct {
 	ValueType Type
 }
 
+type ScalarType struct {
+	Name string
+}
+
 func (t *DocumentType) CheckAllows(item *MapItem) TypeCheck {
 	panic("Attempt to check if a MapItem is allowed as a value of a Document.")
 }
 func (m MapItemType) CheckAllows(item *MapItem) TypeCheck {
 	panic("Attempt to check if a MapItem is allowed as a value of a MapItem.")
+}
+
+func (m ScalarType) CheckAllows(item *MapItem) TypeCheck {
+	panic("Attempt to check if a MapItem is allowed as a value of a ScalarType.")
 }
 
 func (t *DocumentType) AssignTypeTo(typeable Typeable) (chk TypeCheck) {
@@ -91,6 +99,15 @@ func (t *MapItemType) AssignTypeTo(typeable Typeable) (chk TypeCheck) {
 		childCheck := t.ValueType.AssignTypeTo(typeableValue)
 		chk.Violations = append(chk.Violations, childCheck.Violations...)
 	} // else, at a leaf
+	return
+}
+
+func (t *ScalarType) AssignTypeTo(typeable Typeable) (chk TypeCheck) {
+	if t.Name != "string" && t.Name != "int"  {
+		chk.Violations = []string{fmt.Sprintf("Expected node at %s to be a %T, but was a %T", typeable.GetPosition().AsCompactString(), &ScalarType{}, typeable)}
+		return
+	}
+	typeable.SetType(t)
 	return
 }
 
